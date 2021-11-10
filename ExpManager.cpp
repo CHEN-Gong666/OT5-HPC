@@ -365,11 +365,11 @@ void ExpManager::prepare_mutation(int indiv_id) const {
 void ExpManager::run_a_step() {
 
     // Running the simulation process for each organism
-    #pragma omp parallel for //No.1
+    #pragma omp parallel for //schedule(static,1) num_threads(12) //No.1
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         selection(indiv_id);
         prepare_mutation(indiv_id);
-
+        std::cout<<"Threads number: "<< omp_get_thread_num() << std::endl;
         if (dna_mutator_array_[indiv_id]->hasMutate()) {
             auto &mutant = internal_organisms_[indiv_id];
             mutant->apply_mutations(dna_mutator_array_[indiv_id]->mutation_list_);
@@ -378,7 +378,7 @@ void ExpManager::run_a_step() {
     }
 
     // Swap Population
-    // #pragma omp parallel for
+    // #pragma omp parallel for // No.2
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
         internal_organisms_[indiv_id] = nullptr;

@@ -5,6 +5,7 @@ import csv
 import sys
 
 basePath = r'/home/gchen1/Documents/micro-aevol2'
+fileName = r'No.1-for-static-1-p12.csv'
 # colNames = ["Duration"]
 df = pd.read_csv(basePath + "/build/trace.csv")
 durations = df.get("Duration")
@@ -15,7 +16,7 @@ res = res/10**9
 print("Total duration: {}".format(res))
 
 try:
-    with open(basePath + r"/stats/No.1-run_a_step.csv", 'a+') as (csvfile):
+    with open(basePath + r"/stats/" + fileName, 'a+') as (csvfile):
         csvfile.write('\n' + str(res))
 except OSError:
     print("Could not open/read file, getStats.py failed")
