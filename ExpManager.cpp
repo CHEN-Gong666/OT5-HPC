@@ -365,7 +365,8 @@ void ExpManager::prepare_mutation(int indiv_id) const {
 void ExpManager::run_a_step() {
 
     // Running the simulation process for each organism
-    #pragma omp parallel for //schedule(static,1) num_threads(12) //No.1
+    //! HPC 1- to apply: for 
+    // #pragma omp parallel for //schedule(static,1) num_threads(12) //No.1
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         selection(indiv_id);
         prepare_mutation(indiv_id);
@@ -378,13 +379,15 @@ void ExpManager::run_a_step() {
     }
 
     // Swap Population
-    // #pragma omp parallel for // No.2
+    //! HPC 2 - to apply: for simd
+    // #pragma omp parallel for 
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
         internal_organisms_[indiv_id] = nullptr;
     }
 
     // Search for the best
+    //! HPC 3: to apply: seperate into batches 
     double best_fitness = prev_internal_organisms_[0]->fitness;
     int idx_best = 0;
     for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
@@ -432,6 +435,7 @@ void ExpManager::run_evolution(int nb_gen) {
 
     printf("Running evolution from %d to %d\n", AeTime::time(), AeTime::time() + nb_gen);
 
+    //! HPC : for each generation, run_a_step is parallelised, no need for this loop 
     for (int gen = 0; gen < nb_gen; gen++) {
         AeTime::plusplus();
 

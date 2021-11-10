@@ -127,6 +127,7 @@ void Organism::compute_protein_stats() {
         }
     }
 
+    //! HPC - do not apply: for
     for (int i = 0; i < protein_count_; i++) {
         if (rnas[i] != nullptr) {
             if (proteins[i]->is_functional) {
@@ -176,9 +177,9 @@ void Organism::compute_RNA() {
     proteins.clear();
     rnas.clear();
     terminators.clear();
-
-    rnas.resize(promoters_.size());
-
+    rnas.resize(promoters_.size()); // magnitude between 1 and 20 for each organism
+    
+    //! HPC - not to apply: simd, for 
     for (const auto &prom_pair: promoters_) {
         int prom_pos = prom_pair.first;
 

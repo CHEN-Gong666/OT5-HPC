@@ -85,3 +85,6 @@ profiling tools to install:
          
     GPU: nsight systems (nvprof)
          nsight compute (needs root)
+
+To find the indexed parts to improve, search for "//! HPC i" where i is the index
+PS: for each step, please check the magnitude of the loop times
