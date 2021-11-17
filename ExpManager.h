@@ -58,6 +58,7 @@ public:
     void run_evolution(int nb_gen) override;
 
 private:
+    void writeLine(std::string s);
     void run_a_step();
 
     void prepare_mutation(int indiv_id) const;

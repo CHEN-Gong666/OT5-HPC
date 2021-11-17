@@ -11,31 +11,41 @@ __device__ void cuIndividual::search_patterns() {
     // One block per individual
     uint idx = threadIdx.x;
     uint rr_width = blockDim.x;
-
-    for (uint position = idx; position < size; position += rr_width) {
+    uint position = idx;
+    for (; position < size; position += rr_width) {
         const char *genome_at_pos = genome + position;
 
         promoters[position]   = is_promoter(genome_at_pos);
         terminators[position] = is_terminator(genome_at_pos);
         prot_start[position]  = is_prot_start(genome_at_pos);
     }
-}
-
-
-__device__ void cuIndividual::sparse_meta() {
-    // One block per individual
-    uint idx = threadIdx.x;
 
     if (idx == 0) {
         prepare_rnas();
     }
-    if (idx == 1) {
-        nb_terminator = sparse(size, terminators);
+    if (idx == 1 && terminators[position]) {
+        nb_terminator++;
     }
-    if (idx == 2) {
-        nb_prot_start = sparse(size, prot_start);
+    if (idx == 2 && prot_start[position]) {
+        nb_prot_start++;
     }
 }
+
+
+// __device__ void cuIndividual::sparse_meta() {
+//     // One block per individual
+//     uint idx = threadIdx.x;
+
+//     if (idx == 0) {
+//         prepare_rnas();
+//     }
+//     if (idx == 1) {
+//         nb_terminator = sparse(size, terminators);
+//     }
+//     if (idx == 2) {
+//         nb_prot_start = sparse(size, prot_start);
+//     }
+// }
 
 __device__ void cuIndividual::transcription() {
     // One block per individual

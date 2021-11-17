@@ -29,6 +29,7 @@
 #include <iostream>
 #include <zlib.h>
 #include <omp.h>
+#include <filesystem>
 
 using namespace std;
 
@@ -358,6 +359,14 @@ void ExpManager::prepare_mutation(int indiv_id) const {
     }
 }
 
+void ExpManager::writeLine(std::string s){
+    std::string filename("execTime.txt");
+    ofstream file_out;
+
+    file_out.open(filename, std::ios_base::app);
+    file_out << s << endl;
+}
+
 /**
  * Execute a generation of the simulation for all the Organisms
  *
@@ -366,46 +375,108 @@ void ExpManager::run_a_step() {
 
     // Running the simulation process for each organism
     //! HPC 1- to apply: for 
-    // #pragma omp parallel for //schedule(static,1) num_threads(12) //No.1
+
+    double itime, ftime, exec_time;
+
+    // std::string s = "";
+    // itime = omp_get_wtime();
+
+    #pragma omp parallel for num_threads(8) schedule(dynamic)  //No.1 
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         selection(indiv_id);
         prepare_mutation(indiv_id);
-        std::cout<<"Threads number: "<< omp_get_thread_num() << std::endl;
         if (dna_mutator_array_[indiv_id]->hasMutate()) {
             auto &mutant = internal_organisms_[indiv_id];
             mutant->apply_mutations(dna_mutator_array_[indiv_id]->mutation_list_);
             mutant->evaluate(target);
         }
-    }
+    } 
+    
+    // ftime = omp_get_wtime();
+    // exec_time = ftime - itime;
+    // // writeLine(std::to_string(exec_time));
+    // std::cout<< "HPC1: " << exec_time << std::endl; 
+    // s += std::to_string(exec_time);
 
     // Swap Population
     //! HPC 2 - to apply: for simd
-    // #pragma omp parallel for 
+    // #pragma omp for
+
+    // itime = omp_get_wtime();
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
         internal_organisms_[indiv_id] = nullptr;
     }
+    // ftime = omp_get_wtime();
+    // exec_time = ftime - itime;
+    // // writeLine(std::to_string(exec_time));
+    // std::cout<< "HPC2: " << exec_time << std::endl; 
+    // s += " " + std::to_string(exec_time);
 
     // Search for the best
     //! HPC 3: to apply: seperate into batches 
+    
     double best_fitness = prev_internal_organisms_[0]->fitness;
     int idx_best = 0;
-    for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
-        if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
-            idx_best = indiv_id;
-            best_fitness = prev_internal_organisms_[indiv_id]->fitness;
-        }
+    // #pragma omp parallel for //reduction(max: best_fitness)
+    // for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
+    //     // #pragma omp critical
+    //     if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
+    //         // #pragma omp atomic write
+    //         idx_best = indiv_id+1;
+    //         best_fitness = prev_internal_organisms_[indiv_id]->fitness + 500;
+    //     }
+    // }
+    itime = omp_get_wtime();
+    #pragma omp parallel num_threads(2)
+    {
+        // #pragma omp masked(0)
+        // itime = omp_get_wtime();
+
+      int threadID = 0 + omp_get_thread_num() * ceil(nb_indivs_/omp_get_num_threads());
+      int upperID = threadID + ceil(nb_indivs_/omp_get_num_threads());
+
+      double best_fitness_partial = prev_internal_organisms_[threadID]->fitness;
+      int idx_best_partial = threadID;
+
+      for (int indiv_id = threadID+1; indiv_id < upperID && indiv_id < nb_indivs_; indiv_id++) {
+          if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
+              idx_best_partial = indiv_id;
+              best_fitness_partial = prev_internal_organisms_[indiv_id]->fitness;
+          }
+      }
+
+      if (best_fitness_partial > best_fitness) {
+          #pragma omp atomic write
+          best_fitness = best_fitness_partial;
+
+          #pragma omp atomic write
+          idx_best = idx_best_partial;
+      }
     }
+
+    ftime = omp_get_wtime();
+    exec_time = ftime - itime;
+    writeLine(std::to_string(exec_time));
+    // std::cout<< "HPC3: " << exec_time << std::endl;
+    // s += " " + std::to_string(exec_time);
+
     best_indiv = prev_internal_organisms_[idx_best];
 
     // Stats
     stats_best->reinit(AeTime::time());
     stats_mean->reinit(AeTime::time());
-
+    // itime = omp_get_wtime();
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         if (dna_mutator_array_[indiv_id]->hasMutate())
             prev_internal_organisms_[indiv_id]->compute_protein_stats();
     }
+    // ftime = omp_get_wtime();
+    // exec_time = ftime - itime;
+    // // writeLine(std::to_string(exec_time));
+    // std::cout<< "HPC4: " << exec_time << std::endl;
+    // s += " " + std::to_string(exec_time);
+    // writeLine(s);
 
     stats_best->write_best(best_indiv);
     stats_mean->write_average(prev_internal_organisms_, nb_indivs_);
@@ -440,7 +511,7 @@ void ExpManager::run_evolution(int nb_gen) {
         AeTime::plusplus();
 
         TIMESTAMP(1, run_a_step();)
-
+        // run_a_step();
         // printf("Generation %d : Best individual fitness %e\n", AeTime::time(), best_indiv->fitness);
         FLUSH_TRACES(gen)
 
