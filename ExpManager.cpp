@@ -371,116 +371,136 @@ void ExpManager::writeLine(std::string s){
  * Execute a generation of the simulation for all the Organisms
  *
  */
-void ExpManager::run_a_step() {
-
-    // Running the simulation process for each organism
-    //! HPC 1- to apply: for 
-
+void ExpManager::run_a_step() 
+{
     double itime, ftime, exec_time;
+    itime = omp_get_wtime();
 
-    // std::string s = "";
-    // itime = omp_get_wtime();
-
-    #pragma omp parallel for num_threads(8) schedule(dynamic)  //No.1 
-    for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
-        selection(indiv_id);
-        prepare_mutation(indiv_id);
-        if (dna_mutator_array_[indiv_id]->hasMutate()) {
-            auto &mutant = internal_organisms_[indiv_id];
-            mutant->apply_mutations(dna_mutator_array_[indiv_id]->mutation_list_);
-            mutant->evaluate(target);
-        }
-    } 
-    
-    // ftime = omp_get_wtime();
-    // exec_time = ftime - itime;
-    // // writeLine(std::to_string(exec_time));
-    // std::cout<< "HPC1: " << exec_time << std::endl; 
-    // s += std::to_string(exec_time);
-
-    // Swap Population
-    //! HPC 2 - to apply: for simd
-    // #pragma omp for
-
-    // itime = omp_get_wtime();
-    for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
-        prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
-        internal_organisms_[indiv_id] = nullptr;
-    }
-    // ftime = omp_get_wtime();
-    // exec_time = ftime - itime;
-    // // writeLine(std::to_string(exec_time));
-    // std::cout<< "HPC2: " << exec_time << std::endl; 
-    // s += " " + std::to_string(exec_time);
-
-    // Search for the best
-    //! HPC 3: to apply: seperate into batches 
-    
     double best_fitness = prev_internal_organisms_[0]->fitness;
     int idx_best = 0;
-    // #pragma omp parallel for //reduction(max: best_fitness)
-    // for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
-    //     // #pragma omp critical
-    //     if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
-    //         // #pragma omp atomic write
-    //         idx_best = indiv_id+1;
-    //         best_fitness = prev_internal_organisms_[indiv_id]->fitness + 500;
-    //     }
-    // }
-    itime = omp_get_wtime();
-    #pragma omp parallel num_threads(2)
+
+    #pragma omp parallel num_threads(8) 
     {
-        // #pragma omp masked(0)
-        // itime = omp_get_wtime();
+        // Running the simulation process for each organism
+        //! HPC 1- to apply: for 
+        #pragma omp for schedule(dynamic)//   //No.1 
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            selection(indiv_id);
+            prepare_mutation(indiv_id);
+            if (dna_mutator_array_[indiv_id]->hasMutate()) {
+                auto &mutant = internal_organisms_[indiv_id];
+                mutant->apply_mutations(dna_mutator_array_[indiv_id]->mutation_list_);
+                mutant->evaluate(target);
+            }
+        } 
 
-      int threadID = 0 + omp_get_thread_num() * ceil(nb_indivs_/omp_get_num_threads());
-      int upperID = threadID + ceil(nb_indivs_/omp_get_num_threads());
+        // Swap Population
+        //! HPC 2 - to apply: for simd
+        #pragma omp for schedule(static)
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
+            internal_organisms_[indiv_id] = nullptr;
+        }
 
-      double best_fitness_partial = prev_internal_organisms_[threadID]->fitness;
-      int idx_best_partial = threadID;
 
-      for (int indiv_id = threadID+1; indiv_id < upperID && indiv_id < nb_indivs_; indiv_id++) {
-          if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
-              idx_best_partial = indiv_id;
-              best_fitness_partial = prev_internal_organisms_[indiv_id]->fitness;
-          }
-      }
+        // Search for the best
+        //! HPC 3: to apply: seperate into batches 
+        // for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
+        //     // #pragma omp critical
+        //     if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
+        //         // #pragma omp atomic write
+        //         idx_best = indiv_id+1;
+        //         best_fitness = prev_internal_organisms_[indiv_id]->fitness + 500;
+        //     }
+        // }
 
-      if (best_fitness_partial > best_fitness) {
-          #pragma omp atomic write
-          best_fitness = best_fitness_partial;
+        // HPC Begin - Search for the best - version adapted for the multi-thread precessing
+        int threadID = 0 + omp_get_thread_num() * ceil(nb_indivs_/omp_get_num_threads());
+        int upperID = threadID + ceil(nb_indivs_/omp_get_num_threads());
 
-          #pragma omp atomic write
-          idx_best = idx_best_partial;
-      }
+        double best_fitness_partial = prev_internal_organisms_[threadID]->fitness;
+        int idx_best_partial = threadID;
+
+        for (int indiv_id = threadID+1; indiv_id < upperID && indiv_id < nb_indivs_; indiv_id++) {
+            if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
+                idx_best_partial = indiv_id;
+                best_fitness_partial = prev_internal_organisms_[indiv_id]->fitness;
+            }
+        }
+
+        if (best_fitness_partial > best_fitness) {
+            #pragma omp atomic write
+            best_fitness = best_fitness_partial;
+
+            #pragma omp atomic write
+            idx_best = idx_best_partial;
+        }
+        // HPC end - Search for the best - version adapted for the multi-thread precessing
+
+        // Stats
+        stats_best->reinit(AeTime::time());
+        stats_mean->reinit(AeTime::time());
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            if (dna_mutator_array_[indiv_id]->hasMutate())
+                prev_internal_organisms_[indiv_id]->compute_protein_stats();
+        }
+        // ftime = omp_get_wtime();
+        // exec_time = ftime - itime;
+        // // writeLine(std::to_string(exec_time));
+        // std::cout<< "HPC4: " << exec_time << std::endl;
+        // s += " " + std::to_string(exec_time);
+        // writeLine(s);
     }
-
-    ftime = omp_get_wtime();
-    exec_time = ftime - itime;
-    writeLine(std::to_string(exec_time));
-    // std::cout<< "HPC3: " << exec_time << std::endl;
-    // s += " " + std::to_string(exec_time);
 
     best_indiv = prev_internal_organisms_[idx_best];
-
-    // Stats
-    stats_best->reinit(AeTime::time());
-    stats_mean->reinit(AeTime::time());
-    // itime = omp_get_wtime();
-    for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
-        if (dna_mutator_array_[indiv_id]->hasMutate())
-            prev_internal_organisms_[indiv_id]->compute_protein_stats();
-    }
-    // ftime = omp_get_wtime();
-    // exec_time = ftime - itime;
-    // // writeLine(std::to_string(exec_time));
-    // std::cout<< "HPC4: " << exec_time << std::endl;
-    // s += " " + std::to_string(exec_time);
-    // writeLine(s);
-
     stats_best->write_best(best_indiv);
     stats_mean->write_average(prev_internal_organisms_, nb_indivs_);
 }
+
+// Orginial version
+// void ExpManager::run_a_step() {
+
+//     // Running the simulation process for each organism
+//     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+//         selection(indiv_id);
+//         prepare_mutation(indiv_id);
+
+//         if (dna_mutator_array_[indiv_id]->hasMutate()) {
+//             auto &mutant = internal_organisms_[indiv_id];
+//             mutant->apply_mutations(dna_mutator_array_[indiv_id]->mutation_list_);
+//             mutant->evaluate(target);
+//         }
+//     }
+
+//     // Swap Population
+//     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+//         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
+//         internal_organisms_[indiv_id] = nullptr;
+//     }
+
+//     // Search for the best
+//     double best_fitness = prev_internal_organisms_[0]->fitness;
+//     int idx_best = 0;
+//     for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
+//         if (prev_internal_organisms_[indiv_id]->fitness > best_fitness) {
+//             idx_best = indiv_id;
+//             best_fitness = prev_internal_organisms_[indiv_id]->fitness;
+//         }
+//     }
+//     best_indiv = prev_internal_organisms_[idx_best];
+
+//     // Stats
+//     stats_best->reinit(AeTime::time());
+//     stats_mean->reinit(AeTime::time());
+
+//     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+//         if (dna_mutator_array_[indiv_id]->hasMutate())
+//             prev_internal_organisms_[indiv_id]->compute_protein_stats();
+//     }
+
+//     stats_best->write_best(best_indiv);
+//     stats_mean->write_average(prev_internal_organisms_, nb_indivs_);
+// }
 
 
 /**
